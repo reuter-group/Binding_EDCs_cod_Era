@@ -1,0 +1,84 @@
+* Minimize PDB
+*
+
+! read topology and parameter file
+read rtf card name toppar/top_all36_prot.rtf
+read param card flex name toppar/par_all36m_prot.prm
+!edited previous line
+
+read rtf card name toppar/top_all36_cgenff.rtf append
+read rtf card name est/est.rtf append
+bomlev -2
+read param card flex name toppar/par_all36_cgenff.prm append
+read param card flex name est/est.prm append
+bomlev 0
+
+stream toppar/toppar_water_ions.str
+
+! read the psf and coordinate file
+read psf card name step1_pdbreader.psf
+read coor card name step1_pdbreader.crd
+
+!copy the coordinate values into the specified set
+coor copy comp
+
+! define different selections
+define heavy sele .not. hydrogen end
+define backbone sele heavy .and. (type N .or. type c .or. type ca .or. type o ) .and. (.not. resname tip3) end
+define extra select resname tip3 .or. resname cal .or. resname pot .or. resname cla .or. resname sod .or. resname est end
+define water select resname tip3 .or. resname est end
+define sidechain select heavy .and. (.not. backbone) .and. (.not. extra) end
+define extendedsidechain select sidechain .and. water end
+!edited the constraining group
+
+! set up shake
+shake bonh param sele all end
+! set up electrostatics, since we're not using PME, set up switching
+! electrostatics
+nbond inbfrq -1 elec fswitch vdw vswitch cutnb 16. ctofnb 12. ctonnb 10.
+
+energy
+
+!========================================================================
+! minimization in a loop with decreasing force constant!
+! Reducing Force Constants
+! (5 Cycles)
+!------------------------------------------------------------------------
+!    1 cycle  2 cycle  3 cycle  4 cycle  5 cycle  6 cycle 
+!------------------------------------------------------------------------
+! BB    10.0    5.0     2.5      1.0      0.5      0.1
+! SC    5.0     2.5     1.0      0.5      0.1      0.0
+! minimization in a loop with decreasing force constant
+set i = 1
+label mini_loop
+calc k1 = 10 / 2
+calc k2 = 5 / 2
+if i .eq. 4 then set k1 = 1
+if i .eq. 6 then set k1 = 0.1
+if i .eq. 3 then set k2 = 1
+if i .eq. 5 then set k2 = 0.1
+if i .eq. 6 then set k2 = 0
+! put a harmonic restraints on the backbone heavy atoms
+cons harm force @k1 select backbone end
+cons harm force @k2 select extendedsidechain end
+mini sd nstep 100 nprint 10 
+mini abnr nstep 1000 nprint 10 tolg 0.01
+cons harm clear
+incr i by 1
+if i .le. 6 then goto mini_loop
+! end of minimization loop
+!========================================================================! minimization without restraints (7 cycle)
+mini sd nstep 100 nprint 10
+mini abnr nstep 1000 nprint 10 tolg 0.01
+
+coor rms
+ioform extended
+
+write coor card name sys-initialmini-restrainallv2.crd
+* Initial minimization, no PME.
+*
+
+write coor pdb name sys-initialmini-restrainallv2.pdb
+
+stop
+
